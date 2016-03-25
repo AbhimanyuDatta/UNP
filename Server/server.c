@@ -2,53 +2,28 @@
 
 #include<stdio.h>
 #include<stdlib.h>
+#include<string.h>
 #include<netdb.h>
 #include<netinet/in.h>
-#include<string.h>
 #include<unistd.h>
 #include<mysql.h>
 #include<my_global.h>
+#include"myheader.h"
 
 #define MAXLINE 500
 #define LISTENQ 5
-
-void printError(char c)
-{
-	/**Printing error messages for socket functions.**/
-	switch(c)
-	{
-		case 'o':
-					perror("ERROR. Opening socket.");
-					break;
-		case 'b':
-					perror("ERROR. Binding socket.");
-					break;
-		case 'a':
-					perror("ERROR. Accepting socket.");
-					break;
-		case 'f':
-					perror("ERROR. Fork a child.");
-					break;
-		case 'r':
-					perror("ERROR. Reading from socket.");
-					break;
-		case 'w':
-					perror("ERROR. Writing on socket.");
-					break;
-		default:
-					perror("ERROR. Unkown.");
-	}		
-	exit(1);
-}
-
+#define ID 20
+#define PASSWORD 8
 void regis(int connFd, MYSQL *sql)
 {
-	char sendMsg[MAXLINE], recvMsg[MAXLINE], errorMsg[MAXLINE], id[20], password[8];
+	printf("Entered into register.");
+	char sendMsg[MAXLINE], recvMsg[MAXLINE], errorMsg[MAXLINE], id[ID], password[PASSWORD];
 	char regMsg[] = "\nEnter desired ID and Password. ID should be of atleast 5 and atmost 20 characters\n" 
 					"and password should be atleast 4 and atmost 8 characaters.\n" 
 					"Enter as ID<space>Password";
+	char query[MAXLINE] = "INSERT INTO USER VALUES (";
 	int n, i, count;
-	int idError = 0, passwordError = 1;
+	int idError = 0, passwordError = 0;
 
 	strcpy(sendMsg, regMsg);
 	n = write(connFd, sendMsg, MAXLINE);
@@ -110,10 +85,14 @@ void regis(int connFd, MYSQL *sql)
 				printError('w');
 		}
 	}
-	char *query = "INSERT INTO USER VALUES (" + id + "," + password + ")";
+
+	strcpy(query, id);
+	strcpy(query, ", ");
+	strcpy(query, password);
+	strcpy(query, ")");
 	if(mysql_query(sql, query))
 	{
-		fprintf(stderr, "%s\n", mysql_error(sql);
+		fprintf(stderr, "%s\n", mysql_error(sql));
 		mysql_close(sql);
 		exit(1);
 	}
@@ -163,7 +142,7 @@ void startServer(int connFd)
 		mysql_close(sql);
 		exit(1);
 	}
-	if(mysql_query(sql, "USE DATABASE USER"))
+	if(mysql_query(sql, "USE SERVER"))
 	{
 		fprintf(stderr, "%s\n", mysql_error(sql));
 		mysql_close(sql);
@@ -180,12 +159,14 @@ void startServer(int connFd)
 		n = read(connFd, recvMsg, MAXLINE);
 		if(n < 0)
 			printError('r');
-		if(strcmp("register", tolower(recvMsg)) == 0)
+		stringLower(recvMsg);
+		if(strcmp("register", recvMsg) == 0)
 		{
+			printf("Client %d wants to register.\n", connFd);
 			regis(connFd, sql);
 		}
 		else
-			if(strcmp("log in", tolower(recvMsg)) == 0 || strcmp("login", tolower(recvMsg)) == 0)
+			if(strcmp("log in", recvMsg) == 0 || strcmp("login", recvMsg) == 0)
 			{
 				logIn(connFd, sql);
 			}
@@ -211,13 +192,13 @@ int main(int argc, char const *argv[])
 	
 	// binding the server to the port
 	if(bind(listenFd, (struct sockaddr*)&servAddr, sizeof(servAddr)) < 0)
-		printError('b')
+		printError('b');
 	
 	// listening on the port
 	listen(listenFd, LISTENQ);
 	unsigned int clilen = sizeof(cliAddr);
 	
-	while(true)
+	while(1)
 	{
 		// accept a client
 		connFd = accept(listenFd, (struct sockaddr*)&cliAddr, &clilen);
