@@ -10,108 +10,112 @@
 #define MAXLINE 500
 #define LISTENQ 5
 
-void startServer(int connfd)
+void register(int connFd)
+{
+	char regMsg[] = "Enter desired ID and Password.(ID -- Password)";
+
+}
+
+void logIn(int connFd)
+{
+	char logMsg[] = "Enter your ID and Password for Log In.(ID -- Password)";
+	
+}
+
+void startServer(int connFd)
 {
 	char buffer[MAXLINE], sendMsg[MAXLINE], recvMsg[MAXLINE];
 	char start[] = "Do you want to Register or Log In.";
-	char regMsg[] = "Enter desired ID and Password.";
+	
 	char regSucc[] = "Registered successfully.";
-	char logMsg[] = "Enter your ID and Password for Log In.";
+	
 	char logSucc[] = "Successfully Logged In.";
+	char logOut[] = "Successfully Logged Out.";
 	int n;
-	bzero(sendMsg, MAXLINE);
 	strcpy(sendMsg, start);
-	n = write(connfd, sendMsg, MAXLINE);
+	n = write(connFd, sendMsg, MAXLINE);
 	if(n < 0)
 	{
-		perror("ERROR. Server. Writing on socket.");
+		perror("ERROR. Writing on socket.");
 		exit(1);
 	}
 	while(true)
 	{
-		bzero(buffer, MAXLINE);
-		n = read(connfd, buffer, MAXLINE);
+		n = read(connFd, recvMsg, MAXLINE);
 		if(n < 0)
 		{
-			perror("ERROR Server. Reading from socket.");
+			perror("ERROR. Reading from socket.");
 			exit(1);
 		}
-		if(strcmp(buffer, "bye") != 0)
+		if(strcmp("register", tolower(recvMsg)) == 0)
 		{
-			printf("Here is what is written on the socket : %s\n", buffer);
-			// writing on the socket
-			char msg[] = "Lunch ke baad aana.\n";
-			n = write(connfd, msg, sizeof(msg));
-			if(n < 0)
-			{
-				perror("ERROR. Writing on socket.");
-				exit(1);
-			}
+			register(connFd);
 		}
 		else
-		{
-			printf("Client ended the connection.");
-			break;
-		}
+			if(strcmp("log in", tolower(recvMsg)) == 0)
+			{
+				logIn(connFd);
+			}
+
 	}
 }
 
 int main(int argc, char const *argv[])
 {
-	int listenfd, connfd, port = 9876, pid;
-	struct sockaddr_in servaddr, cliaddr;
+	int listenFd, connFd, port = 9876, pId;
+	struct sockaddr_in servAddr, cliAddr;
 	printf("Server is up and running ...\n");
 	// opening the socket
-	if((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+	if((listenFd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 	{
-		perror("ERROR. In opening socket.");
+		perror("ERROR. In opening socket.\n");
 		exit(1);
 	}
 	// setting socket address structure
-	bzero(&servaddr, sizeof(servaddr));
-	servaddr.sin_family = AF_INET;
-	servaddr.sin_addr.s_addr = INADDR_ANY;
-	servaddr.sin_port = htons(port);
+	bzero(&servAddr, sizeof(servAddr));
+	servAddr.sin_family = AF_INET;
+	servAddr.sin_addr.s_addr = INADDR_ANY;
+	servAddr.sin_port = htons(port);
 	// binding the server to the port
-	if(bind(listenfd, (struct sockaddr*)&servaddr, sizeof(servaddr)) < 0)
+	if(bind(listenFd, (struct sockaddr*)&servAddr, sizeof(servAddr)) < 0)
 	{
-		perror("ERROR. On binding server.");
+		perror("ERROR. On binding server.\n");
 		exit(1);
 	}
 	// listening on the port
-	listen(listenfd, LISTENQ);
-	unsigned int clilen = sizeof(cliaddr);
+	listen(listenFd, LISTENQ);
+	unsigned int clilen = sizeof(cliAddr);
 	while(true)
 	{
 		// accept a client
-		connfd = accept(listenfd, (struct sockaddr*)&cliaddr, &clilen);
-		if(connfd < 0)
+		connFd = accept(listenFd, (struct sockaddr*)&cliAddr, &clilen);
+		if(connFd < 0)
 		{
-			perror("ERROR. On accept.");
+			perror("ERROR. On accept.\n");
 			exit(1);
 		}
 		// fork a child process
-		pid = fork();
-		if(pid < 0)
+		pId = fork();
+		if(pId < 0)
 		{
-			perror("ERROR. On fork.");
+			perror("ERROR. On fork.\n");
 			exit(1);
 		}
 		// run the child process
-		if(pid == 0)
+		if(pId == 0)
 		{
-			close(listenfd);
-			startServer(connfd);
+			close(listenFd);
+			startServer(connFd);
 			exit(0);
 		}
 		else
 		{
-			close(connfd);
+			close(connFd);
 		}
 	}
 	// closing the socket
-	close(connfd);
-	close(listenfd);
-	bzero(&servaddr, sizeof(servaddr));
+	close(connFd);
+	close(listenFd);
+	bzero(&servAddr, sizeof(servAddr));
 	return 0;
 }
