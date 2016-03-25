@@ -30,6 +30,29 @@ void startClient(int sockFd)
 			perror("ERROR. Writing on socket.\n");
 			exit(1);
 		}
+		
+		if(strcmp("register", tolower(sendMsg)) == 0)
+		{
+			n = read(sockFd, recvMsg, MAXLINE);
+			if(n < 0)
+			{
+				perror("ERROR. Reading from socket.\n");
+				exit(1);
+			}
+			bzero(sendMsg, MAXLINE);
+			fgets(sendMsg, MAXLINE, stdin);
+			
+
+		}
+		if(strcmp("registered successfully", tolower(recvMsg)) == 0)
+		{
+			entry = true;
+		}
+	}
+	// successfull log in
+	while(true)
+	{
+		break;
 	}
 }
 
