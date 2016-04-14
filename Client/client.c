@@ -9,58 +9,111 @@
 #include"myheader.h"
 
 #define MAXLINE 500
+#define EQUAL -10
 
-void startClient(int sockFd)
+int logId(int sockFd)
 {
-	char buffer[MAXLINE], sendMsg[MAXLINE], recvMsg[MAXLINE];
+	char sendMsg[MAXLINE], recvMsg[MAXLINE];
 	int n;
-	bool entry = false;
-	while(!entry)
-	{
-		// First message from server
-		n = read(sockFd, recvMsg, MAXLINE);
-		if(n < 0)
-			printError('r');
-		printf("Server : %s\n", recvMsg);
-		fgets(sendMsg, MAXLINE, stdin);
-		// Reply to server - Register or Log In
-		n = write(sockFd, sendMsg, MAXLINE);
-		if(n < 0)
-			printError('w');
-		stringLower(sendMsg);
-		if(strcmp("register", sendMsg) == 0)
-		{
-			// Server asking for credentials
+
+	bzero(&recvMsg, MAXLINE);
+	bzero(&sendMsg, MAXLINE);
+	
+	// server asking for credentials to log in
+	printf("server asking for credentials to log in\n");
+	n = read(sockFd, recvMsg, MAXLINE);
+	if(n < 0)
+		printError('w');
+
+	printf("\nServer :\n%s\n", recvMsg);
+	fgets(sendMsg, MAXLINE, stdin);
+
+	// providing log in credentials
+	n = write(sockFd, sendMsg, MAXLINE);
+	if(n < 0)
+		printError('w');
+	
+
+}
+
+int regis(int sockFd)
+{
+	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	int n;
+	int accept = 0;
+	while(!accept)
+	{// server asking for credentials
+		printf("In regis\n");
+			printf("server asking for credentials\n");
 			n = read(sockFd, recvMsg, MAXLINE);
+			if(n < 0)
 				printError('r');
-			printf("Server : \n%s", recvMsg);
-			bzero(sendMsg, MAXLINE);
+			printf("\nServer : \n%s\n", recvMsg);
 			fgets(sendMsg, MAXLINE, stdin);
-			// Providing credentials to server
+
+			// providing credentials to server
+			printf("providing credentials to server\n");
 			n = write(sockFd, sendMsg, MAXLINE);
 			if(n < 0)
 				printError('w');
-			// Reading success or failure message
+
+			// response from the server
+			printf("response from the server\n");
 			n = read(sockFd, recvMsg, MAXLINE);
 			if(n < 0)
 				printError('r');
-		}
-		stringLower(recvMsg);
-		if(strcmp("registered successfully", recvMsg) == 0)
-		{
-			entry = true;
-		}
+			stringLower(recvMsg);
+			printf("server : \n%s\n", recvMsg);
+			printf("%d", strcmp("success", recvMsg));
+			if(strcmp("registered successfully", recvMsg) == 0)
+			{
+				printf("Returning to start client\n");
+				return 1;
+			}
 	}
-	// successfull log in
-	while(true)
+
+}
+
+void startClient(int sockFd)
+{
+	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	int n;
+	int entry = 0, logId;
+	while(!entry)
 	{
-		break;
+		printf("In startClient\n");
+		bzero(&recvMsg, MAXLINE);
+		bzero(&sendMsg, MAXLINE);
+
+		// first message from the server
+		printf("first message from the server\n");
+		n = read(sockFd, recvMsg, MAXLINE);
+		if(n < 0)
+			printError('r');
+		printf("\nServer : \n%s\n", recvMsg);
+		fgets(sendMsg, MAXLINE, stdin);
+
+		// sending response to server
+		printf("sending response to server\n");
+		n = write(sockFd, sendMsg, MAXLINE);
+		if(n < 0)
+			printError('w');
+		if(strcmp("register", sendMsg) == EQUAL)
+		{
+			entry = regis(sockFd);
+			printf("returned to start client");
+		}
+		else
+			if(strcmp("log in", sendMsg) == EQUAL || strcmp("login", sendMsg) == EQUAL)
+			{
+				logId = logIn(sockFd);
+			}
 	}
 }
 
 int main(int argc, char const *argv[])
 {
-	int sockFd, port = 9876, n;
+	int sockFd, port, n;
 	struct sockaddr_in servAddr;
 	struct hostent *server;
 
@@ -70,6 +123,7 @@ int main(int argc, char const *argv[])
 		exit(0);
 	}
 	port = atoi(argv[2]);
+	
 	// opening the socket
 	sockFd = socket(AF_INET, SOCK_STREAM, 0);
 	if(sockFd < 0)
@@ -77,11 +131,13 @@ int main(int argc, char const *argv[])
 	server = gethostbyname(argv[1]);
 	if(server == NULL)
 		printError('h');
+	
 	// setting the socket address structure
 	bzero(&servAddr, sizeof(servAddr));
 	servAddr.sin_family = AF_INET;
 	bcopy(server->h_addr, &servAddr.sin_addr.s_addr, server->h_length);
 	servAddr.sin_port = htons(port);
+	
 	// connecting to the server
 	if(connect(sockFd, (struct sockaddr*)&servAddr, sizeof(servAddr)) < 0)
 		printError('c');
