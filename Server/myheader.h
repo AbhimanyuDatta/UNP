@@ -43,11 +43,11 @@ void printError(char c)
 		case 'h':
 					perror("ERROR. No such host.");
 					break;
-		case 'o':
-					perror("ERROR. Opening socket.");
-					break;
 		case 'r':
 					perror("ERROR. Reading from socket.");
+					break;
+		case 's':
+					perror("ERROR. Opening socket.");
 					break;
 		case 'w':
 					perror("ERROR. Writing on socket.");

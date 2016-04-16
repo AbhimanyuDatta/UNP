@@ -20,11 +20,56 @@
 int loggedIn[LISTENQ]; // contains the generated ids of logged in clients
 int log_size;
 
-int checkLogIn(int connFd, MYSQL *sql, char id[], char password[])
+void get(int connFd, MYSQL *sql)
 {
-	char query[] = "SELECT * FROM USER";
-	int found = 0, logId;
+	/**
+		GET command from Client.
+	**/
+	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	int n;
 
+
+}
+
+void put(int connFd, MYSQL *sql)
+{
+	/**
+		PUT command from Client.
+	**/
+	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	int n;
+
+
+}
+
+void del(int connFd, MYSQL *sql)
+{
+	/**
+		DELETE command from Client.
+	**/
+	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	int n;
+
+
+}
+
+int verification(MYSQL *sql, char id[], char password[])
+{
+	/**
+		Verifies the id and password in the USER database.
+		In case of Register, only id is matched to see if it's
+		already taken.
+		In case of Log In, password is also matched to check if 
+		credentials are correct.
+		Return - 1, if the id exists
+				 0, otherwise
+	**/
+	printf("In checkLogIn\n");
+	char query[] = "SELECT * FROM USER";
+	int exist = 0;
+	char tempId[ID], c; 
+	c = (password == NULL)? 'r' : 'l';
+	
 	if(mysql_query(sql, query))
 	{
 		fprintf(stderr, "%s\n", mysql_error(sql));
@@ -39,39 +84,106 @@ int checkLogIn(int connFd, MYSQL *sql, char id[], char password[])
 		mysql_close(sql);
 		exit(1);
 	}
-	int num_fields = mysql_num_fields(sql);
+	
 	MYSQL_ROW row;
 	printf("fetching result\n");
 	while(row = mysql_fetch_row(result))
 	{
-		if(strcmp(id, row[0]) == 0)
+		strcpy(tempId, row[0]);
+		stringLower(tempId);
+		if(strcmp(id, tempId) == 0)
 		{
-			if(strcmp(password, row[1]) == 0)
+			if(c == 'r')
 			{
-				found = 1; // found the user
+				exist = 1;
 				break;
 			}
+			else
+				if(c == 'l')
+					if(strcmp(password, row[1]) == 0)
+					{
+						exist = 1;
+						break;
+					}
+				else
+					printf("Wrong Option.\n");
 		}
 	}
-	return found;
+
+	mysql_free_result(result);
+	return exist;
+}
+
+void formatCheck(char recvMsg[], char errorMsg[], char id[], char password[], int *idError, int *passwordError)
+{
+	/**
+		Check whether the entered id and password are in the correct format.
+		idError and passwordError are used to indicate if there is an error.
+	**/
+	int i, k, count = 0;
+	for(i = 0; recvMsg[i] != ' '; ++i)
+	{
+		count++;
+		if(count > 20)
+		{
+			*idError = 1;
+			strcat(errorMsg, "ID error. ");
+			break;
+		}
+		id[i] = recvMsg[i];
+	}
+	if(count < 5 && !(*idError))
+	{
+		*idError = 1;
+		strcat(errorMsg, "ID error. ");
+	}
+	id[i] = '\0';
+	printf("Id : %s\n", id);
+	count = 0;
+	k = 0;
+	printf("i : %d\n", i);
+	i++;
+	printf("i : %d\n", i);
+	for( ; recvMsg[i] != '\n'; ++i)
+	{
+		count++;
+		if(count > 8 || recvMsg[i] == ' ')
+		{
+			*passwordError = 1;
+			strcat(errorMsg, "Password error. Check format. ");
+			break;
+		}
+		password[k++] = recvMsg[i];
+	}
+	if(count < 4 && !(*passwordError))
+	{
+		*passwordError = 1;
+		strcat(errorMsg, "Password error. ");
+	}
+	password[k] = '\0';
+	printf("Password : %s\n", password);
 }
 
 
-void logIn(int connFd, MYSQL *sql)
+int logIn(int connFd, MYSQL *sql)
 {
 	/**
 		Logs in user.
-		Generates connection ids.
+		Return - 1, when user logs out.
 	**/
+	printf("In logIn\n.");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE], errorMsg[MAXLINE] = ""; 
 	char id[ID], password[PASSWORD];
+	char tempId[ID];
 	char logMsg[] = "Enter ID and Password to log in.\nID<space>Password.";
 	char query[] = "SELECT * FROM USER";
-	int n, i, k, count, logId, exist = 0;
+	int n, i, k, count, logId, exist;
 	int idError, passwordError;
+	int logout = 0;
 
 	while(1)
 	{
+		exist = 0;
 		idError = 0;
 		passwordError = 0;
 		bzero(&recvMsg, MAXLINE);
@@ -89,114 +201,95 @@ void logIn(int connFd, MYSQL *sql)
 		n = read(connFd, recvMsg, MAXLINE);
 		if(n < 0)
 			printError('w');
+		printf("%s\n", recvMsg);
 
-		// username verification
-		count = 0;
-		for(i = 0; recvMsg[i] != ' '; ++i)
-		{
-			count++;
-			if(count > 20)
-			{
-				idError = 1;
-				strcpy(errorMsg, "ID Error. ");
-				break;
-			}
-			id[i] = recvMsg[i];
-		}
-		if(count < 5)
-		{
-			idError = 1;
-			strcpy(errorMsg, "ID Error. ");
-		}
-		id[i] = '\0';
-		stringLower(id);
+		// username and password format verification
+		formatCheck(recvMsg, errorMsg, id, password, &idError, &passwordError);
+		strcpy(tempId, id);
+		stringLower(tempId);
 
-		// password verification
-		i++;
-		count = 0;
-		k = 0;
-		for( ; recvMsg[i] != '\n'; ++i)
-		{
-			count++;
-			if(count > 8)
-			{
-				passwordError = 1;
-				strcpy(errorMsg, "Password Error.");
-				break;
-			}
-			password[k++] = recvMsg[i];
-		}
-		passwordError[k] = '\0';
-		if(count < 4)
-		{
-			passwordError = 1;
-			strcpy(errorMsg, "Password Error. ");
-		}
 		if(idError == 0 && passwordError == 0)
 		{
 			printf("AlL OK\n");
-			exist = checkLogIn(connFd, sql, id, password);
+			exist = verification(sql, tempId, password);
 			if(exist)
 			{
-				srand(time(NULL));
-				loggedIm[++log_size] = rand();
+				char welcome[MAXLINE] = "Welcome ";
+				strcat(welcome, id);
+				strcpy(sendMsg, welcome);
+				printf("%s\n", sendMsg);
+				
+				// sending welcome message
+				if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+					printError('w');
+				//srand(time(NULL));
+				//loggedIn[++log_size] = rand();
+				break;
 			}
 			else
 			{
-				strcpy(errorMsg, "You need to log in first.");
+				strcpy(errorMsg, "You need to register.");
 				n = write(connFd, errorMsg, MAXLINE);
 				if(n < 0)
 					printError('w');
 				break;
 			}
 		}
-
-		if(mysql_query(sql, query))
+		else
 		{
-			fprintf(stderr, "%s\n", mysql_error(sql));
-			mysql_close(sql);
-			exit(1);
-		}
-	}
-}
-
-int checkId(int connFd, MYSQL *sql, char id[])
-{
-	/** Checks if the id already exists. 
-		Returns - 0, if it doesn't exist,
-				- 1, otherwise.
-	**/
-	printf("Check ID.\n");
-	int exist = 0;
-	char query[] = "Select ID from USER";
-	if(mysql_query(sql, query))
-	{
-		fprintf(stderr, "%s\n", mysql_error(sql));
-		mysql_close(sql);
-		exit(1);
-	}
-	MYSQL_RES *result = mysql_store_result(sql);
-	if(result == NULL)
-	{
-		fprintf(stderr, "%s\n", mysql_error(sql));
-		mysql_close(sql);
-		exit(1);
-	}
-	int num_fields = mysql_num_fields(result);
-	MYSQL_ROW row;
-	printf("checking row id\n");
-	// fetching all the rows
-	while(row = mysql_fetch_row(result))
-	{
-		// comparing the id with the previouslt entered ids
-		if(strcmp(id, row[0]) == 0)
-		{
-			exist = 1;
+			strcpy(sendMsg, errorMsg);
+			if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+				printError('w');
 			break;
 		}
 	}
-	mysql_free_result(result);
-	return exist;
+
+	while(exist)
+	{
+		char options[] = "Here are your options.\nGET\nPUT\nDELETE\nLOGOUT.";
+		strcpy(sendMsg, options);
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+
+		bzero(&recvMsg, MAXLINE);
+		if((n = read(connFd, recvMsg, MAXLINE)) < 0)
+			printError('r');
+
+		printf("%s", recvMsg);
+		stringLower(recvMsg);
+
+		if(strcmp("get", recvMsg) == EQUAL)
+		{
+			get(connFd, sql);
+		}
+		else
+			if(strcmp("put", recvMsg) == EQUAL)
+			{
+				put(connFd, sql);
+			}
+			else
+				if(strcmp("delete", recvMsg) == EQUAL)
+				{
+					del(connFd, sql);
+				}
+				else
+					if(strcmp("logout", recvMsg) == EQUAL)
+					{
+						logout = 1;
+						printf("Logout successful.\n");
+						strcpy(sendMsg, "Logout successful.");
+						if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+							printError('w');
+						return logout;
+					}
+					else
+					{
+						printf("Wrong option.\n");
+						strcpy(sendMsg, "Wrong option.\n");
+						if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+							printError('w');
+					}
+	}
 }
 
 void regis(int connFd, MYSQL *sql)
@@ -232,56 +325,16 @@ void regis(int connFd, MYSQL *sql)
 		n = read(connFd, recvMsg, MAXLINE);
 		if(n < 0)
 			printError('r');
-		printf("\nclient : \n%s\n", recvMsg);
+		printf("\nClient : \n%s\n", recvMsg);
 
-		// username validation
-		count = 0;
-		for(i = 0; recvMsg[i] != ' '; ++i)
-		{
-			count++;
-			if(count > 20)
-			{
-				idError = 1;
-				strcpy(errorMsg, "ID Error. ");
-				break;
-			}
-			id[i] = recvMsg[i];
-		}
-		if(count < 5)
-		{
-			idError = 1;
-			strcat(errorMsg, "ID Error. ");
-		}
-		id[i] = '\0';
+		// username and password format validation
+		formatCheck(recvMsg, errorMsg, id, password, &idError, &passwordError);
 		stringLower(id);
-		printf("id : %s\n", id);
-		i++;
-		count = 0;
-		k = 0;
 
-		// password validation
-		for( ; recvMsg[i]!= '\n'; ++i)
-		{
-			count++;
-			if(count > 8)
-			{
-				passwordError = 1;
-				strcat(errorMsg, "Password Error. ");
-				break;
-			}
-			password[k++] = recvMsg[i];
-		}
-		if(count < 4)
-		{
-			passwordError = 1;
-			strcat(errorMsg, "Password Error. ");
-		}
-		password[k] = '\0';
-		printf("password : %s\n", password);
 		if(idError == 0 && passwordError == 0)
 		{
 			printf("All OK\n");
-			exist = checkId(connFd, sql, id);
+			exist = verification(sql, id, NULL);
 			if(!exist)
 				break;
 			else
@@ -301,14 +354,13 @@ void regis(int connFd, MYSQL *sql)
 			if(n < 0)
 				printError('w');
 		}
-
 	}
 
 	strcat(query, id);
 	strcat(query, "\', \'");
 	strcat(query, password);
 	strcat(query, "\')");
-	printf("Query : \n%s", query);
+	printf("Query : %s\n", query);
 
 	if(mysql_query(sql, query))
 	{
@@ -318,7 +370,7 @@ void regis(int connFd, MYSQL *sql)
 	}
 
 	strcpy(sendMsg, success);
-	printf("success");
+	printf("success\n");
 	n = write(connFd, sendMsg, MAXLINE);
 	if(n < 0)
 		printError('w');
@@ -329,12 +381,13 @@ void startServer(int connFd)
 	/**
 		Start the server side operations.
 	**/
+	printf("In startServer.\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE];
 	char start[] = "Do you want to Register or Log In?";
 	char regSucc[] = "Registered successfully.";
 	char logSucc[] = "Successfully Logged In.";
 	char logOut[] = "Successfully Logged Out.";
-	int n;
+	int n, logout = 0;
 	
 	// connect mysql
 	MYSQL *sql = mysql_init(NULL);
@@ -356,35 +409,41 @@ void startServer(int connFd)
 		exit(1);
 	}
 
-	strcpy(sendMsg, start);
-	n = write(connFd, sendMsg, MAXLINE);
-	if(n < 0)
-		printError('w');
-	
-	//while(1)
+	while(1)
 	{
+		// start server
+		strcpy(sendMsg, start);
+		n = write(connFd, sendMsg, MAXLINE);
+		if(n < 0)
+			printError('w');
+
 		bzero(&recvMsg, MAXLINE);
 		n = read(connFd, recvMsg, MAXLINE);
 		if(n < 0)
 			printError('r');
+		
 		printf("%s\n", recvMsg);
 		stringLower(recvMsg);
 		printf("%s\n", recvMsg);
+		
 		if(strcmp("register", recvMsg) == EQUAL)
 		{
 			printf("Client %d wants to register.\n", connFd);
 			regis(connFd, sql);
-			logIn(connFd, sql);
+			logout = logIn(connFd, sql);
 		}
 		else
 			if(strcmp("log in", recvMsg) == EQUAL || strcmp("login", recvMsg) == EQUAL)
 			{
-				//logIn(connFd, sql);
+				printf("Client %d wants to login.\n", connFd);
+				logout = logIn(connFd, sql);
 			}
 			else
 			{
-				printf("Wrong option");
+				printf("Wrong option.\n");
 			}
+		if(logout)
+			return;
 	}
 	mysql_close(sql);
 }
@@ -411,11 +470,11 @@ int main(int argc, char const *argv[])
 	
 	// listening on the port
 	listen(listenFd, LISTENQ);
-	unsigned int clilen = sizeof(cliAddr);
 	
 	while(1)
 	{
 		// accept a client
+		unsigned int clilen = sizeof(cliAddr);
 		connFd = accept(listenFd, (struct sockaddr*)&cliAddr, &clilen);
 		if(connFd < 0)
 			printError('a');
