@@ -1,6 +1,5 @@
 #include<stdio.h>
 #include<stdlib.h>
-#include<ctype.h>
 
 
 void stringLower(char *str)
@@ -14,13 +13,15 @@ void stringLower(char *str)
 	}
 }
 
-int stringCompare(const char *str1, const char *str2)
+void stringUpper(char *str)
 {
-	/**Compare two strings.**/
-	for( ; *str1 == *str2; str1++, str2++)
-		if(*str1 == '\0' && *str2 == '\0')
-			return 0;
-	return *str1 - *str2;
+	/**Convert a string with lowercase letters to one with all uppercase.**/
+	while(*str)
+	{
+		if(*str >= 97 && *str <= 122)
+			*str -= 32;
+		str++;
+	}
 }
 
 void printError(char c)

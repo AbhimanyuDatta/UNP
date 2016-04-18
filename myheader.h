@@ -1,5 +1,6 @@
 #include<stdio.h>
 #include<stdlib.h>
+#include<ctype.h>
 
 
 void stringLower(char *str)
@@ -24,6 +25,17 @@ void stringUpper(char *str)
 	}
 }
 
+int stringCompare(const char *str1, const char *str2)
+{
+	/**Compare two strings.**/
+	for( ; *str1 == *str2; str1++, str2++)
+		if(*str1 == '\0' && *str2 == '\0')
+			return 0;
+	return *str1 - *str2;
+}
+
+
+
 void printError(char c)
 {
 	/**Printing error messages for socket functions.**/
@@ -44,11 +56,11 @@ void printError(char c)
 		case 'h':
 					perror("ERROR. No such host.");
 					break;
-		case 'o':
-					perror("ERROR. Opening socket.");
-					break;
 		case 'r':
 					perror("ERROR. Reading from socket.");
+					break;
+		case 's':
+					perror("ERROR. Opening socket.");
 					break;
 		case 'w':
 					perror("ERROR. Writing on socket.");

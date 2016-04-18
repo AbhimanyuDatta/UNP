@@ -1,4 +1,4 @@
-//client 
+// client 
 
 #include<stdio.h>
 #include<stdlib.h>
@@ -8,36 +8,45 @@
 #include<unistd.h>
 #include"myheader.h"
 
-#define MAXLINE 500
+#define MAXLINE 250
 #define EQUAL -10
+#define TIMEOUT 2000
+#define RETRIES 3
+
+
+/********************** Main Functionality Procedures **********************/
+
 
 int startCommunication(int sockFd)
 {
 	/**
 		Start the client communication with the server.
-		Return - 1, when the user has successfully logged out.
+		Return: 1, when the user has successfully logged out.
 	**/
 	printf("In startCommunication.\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE];
 	int n, logout = 0;
 
+	// server providing options
+	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
+		printError('r');
+	printf("\nServer :\n%s\n", recvMsg);
+	
 	while(1)
 	{
-		// server providing options
-		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
-			printError('r');
-		printf("\nServer :\n%s\n", recvMsg);
-
 		printf("\nClient : \n");
 		fgets(sendMsg, MAXLINE, stdin);
 
-		// replying to server
+		// choosing an option
 		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
 		
+		// server's reply
 		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
-
+		
+		printf("\nServer : ");
+		fputs(recvMsg, stdout);
 		stringLower(recvMsg);
 		if(strcmp("logout successful.", recvMsg) == 0)
 		{
@@ -47,16 +56,17 @@ int startCommunication(int sockFd)
 	}
 }
 
+
 int logIn(int sockFd)
 {
 	/**
 		Asks client to provide credentials to log in with.
-		Return - 1, if log in is successful
-				 -1, if there's some error
+		Return: 1, if log in is successful
+				-1, if there's some error
 	**/
 	printf("In logIn\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE];
-	char welcome[MAXLINE] = "Welcome ";
+	char welcome[MAXLINE] = "WELCOME ";
 	int n, i, k, count = 0, wrong = 0;
 	int logout;
 
@@ -65,8 +75,7 @@ int logIn(int sockFd)
 	
 	// server asking for credentials to log in
 	printf("server asking for credentials to log in\n");
-	n = read(sockFd, recvMsg, MAXLINE);
-	if(n < 0)
+	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 		printError('w');
 
 	printf("\nServer :\n%s\n", recvMsg);
@@ -74,19 +83,19 @@ int logIn(int sockFd)
 	fgets(sendMsg, MAXLINE, stdin);
 	
 	// providing log in credentials
-	n = write(sockFd, sendMsg, MAXLINE);
-	if(n < 0)
+	if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 		printError('w');
 	
 	bzero(&recvMsg, MAXLINE);
 	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 		printError('r');
-	printf("%s\n", recvMsg);
+	printf("\n%s\n\n", recvMsg);
 
 	// matching the welcome message and id
 	k = strlen(welcome);
 	for(i = 0; sendMsg[i] != ' '; ++i, ++k)
 		welcome[k] = sendMsg[i];
+	welcome[k] = '\0';
 
 	if(strcmp(welcome, recvMsg) != 0)
 		wrong = 1;
@@ -115,8 +124,7 @@ void regis(int sockFd)
 		printf("In regis\n");
 		printf("server asking for credentials\n");
 		
-		n = read(sockFd, recvMsg, MAXLINE);
-		if(n < 0)
+		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
 		printf("\nServer : \n%s\n", recvMsg);
 		
@@ -125,14 +133,12 @@ void regis(int sockFd)
 
 		// providing credentials to server
 		printf("providing credentials to server\n");
-		n = write(sockFd, sendMsg, MAXLINE);
-		if(n < 0)
+		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
 
 		// response from the server
 		printf("response from the server\n");
-		n = read(sockFd, recvMsg, MAXLINE);
-		if(n < 0)
+		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
 		
 		stringLower(recvMsg);
@@ -145,6 +151,7 @@ void regis(int sockFd)
 		}
 	}
 }
+
 
 void startClient(int sockFd)
 {
@@ -164,8 +171,7 @@ void startClient(int sockFd)
 
 		// message from the server
 		printf("message from the server\n");
-		n = read(sockFd, recvMsg, MAXLINE);
-		if(n < 0)
+		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
 		printf("\nServer : \n%s\n", recvMsg);
 		
@@ -174,8 +180,7 @@ void startClient(int sockFd)
 
 		// sending response to server
 		printf("sending response to server\n");
-		n = write(sockFd, sendMsg, MAXLINE);
-		if(n < 0)
+		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
 		
 		// register
@@ -186,7 +191,7 @@ void startClient(int sockFd)
 			logout = logIn(sockFd);
 			if(logout)
 			{
-				printf("You are logged out.\n");
+				printf("\nWrite ./client 127.0.0.1 9876 to reconnect.\n\n");
 				return;
 			}
 		}
@@ -195,19 +200,20 @@ void startClient(int sockFd)
 			if(strcmp("log in", sendMsg) == EQUAL || strcmp("login", sendMsg) == EQUAL)
 			{
 				logout = logIn(sockFd);
-				if(logout)
+				if(logout == 1)
 				{
-					printf("You are logged out.\n");
+					printf("\nWrite ./client 127.0.0.1 9876 to reconnect.\n\n");
 					return;
 				}
 			}
 		
 		if(logout == -1)
 		{
-			printf("Something wrong with the server.\n");
+			printf("Something went wrong.\n");
 		}
 	}
 }
+
 
 int main(int argc, char const *argv[])
 {
@@ -223,11 +229,9 @@ int main(int argc, char const *argv[])
 	port = atoi(argv[2]);
 	
 	// opening the socket
-	sockFd = socket(AF_INET, SOCK_STREAM, 0);
-	if(sockFd < 0)
+	if((sockFd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		printError('o');
-	server = gethostbyname(argv[1]);
-	if(server == NULL)
+	if((server = gethostbyname(argv[1])) < 0)
 		printError('h');
 	
 	// setting the socket address structure

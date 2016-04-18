@@ -8,52 +8,142 @@
 #include<unistd.h>
 #include<mysql.h>
 #include<my_global.h>
-#include<time.h>
 #include"myheader.h"
 
-#define MAXLINE 500
+#define MAXLINE 250
 #define LISTENQ 5
 #define ID 20
 #define PASSWORD 8
 #define EQUAL -10
+#define SLEEP 3000
 
-int loggedIn[LISTENQ]; // contains the generated ids of logged in clients
-int log_size;
 
-void get(int connFd, MYSQL *sql)
+/**************************** Helper Functions ****************************/
+
+
+int checkTable(MYSQL *sql, char dbTable[])
 {
 	/**
-		GET command from Client.
+		Check if the table name entered by the client is a valid one.
 	**/
-	char sendMsg[MAXLINE], recvMsg[MAXLINE];
-	int n;
+	printf("In checkTable\n");
+	char query[] = "SHOW TABLES;";
+	int accept = 0;
 
+	// not allowed to look into USER table
+	if(strcmp("USER", dbTable) == 0)
+	{
+		accept = -1;
+		return accept;
+	}
 
+	printf("Running query.\n");
+	if(mysql_query(sql, query))
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+	printf("Query result.\n");
+	MYSQL_RES *result = mysql_store_result(sql);
+	if(result == NULL)
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+
+	MYSQL_ROW row;
+	printf("Matching result\n");
+	while(row = mysql_fetch_row(result))
+	{
+		if(strcmp(dbTable, row[0]) == 0)
+		{
+			accept = 1;
+			break;
+		}
+	}
+	printf("return %d\n", accept);
+	mysql_free_result(result);
+	return accept;
 }
 
-void put(int connFd, MYSQL *sql)
+
+int checkDate(char data[])
 {
 	/**
-		PUT command from Client.
+		Checks the date whether it's in the write format
+		Return: 1, if the format is correct
+				0, otherwise
 	**/
-	char sendMsg[MAXLINE], recvMsg[MAXLINE];
-	int n;
+	printf("In dateFormat\n");
+	char year[5], month[3], date[3];
+	int i, j, k;
+	int y, m, d, leap;
+	printf("%s\n", data);
 
+	for(i = 0; data[i] != '-'; ++i)
+	{
+		if(data[i] < 48 || data[i] > 57)
+			return 0;	
+		year[i] = data[i];
+	}
+	year[i++] = '\0';
+	printf("%s\n", year);
+	for(j = 0; data[i] != '-'; ++i)
+	{
+		if(data[i] < 48 || data[i] > 57)
+			return 0;
+		month[j++] = data[i];
+	}
+	month[j] = '\0';
+	printf("%s\n", month);
+	i++;
+	for(k = 0; data[i] != '\0'; ++i)
+	{
+		if(data[i] < 48 || data[i] > 57)
+			return 0;
+		date[k++] = data[i];
+	}
+	date[k] = '\0';
+	printf("%s\n", date);
+	if((strlen(date) != 2) || (strlen(month) != 2) || (strlen(year) != 4))
+		return 0;
 
+	y = atoi(year);
+	m = atoi(month);
+	d = atoi(date);
+
+	printf("date range check\n");
+	if(y < 1900 || y > 2016)
+		return 0;
+	if(m < 1 || m > 12)
+		return 0;
+	if(d < 1 || d > 31)
+		return 0;
+
+	printf("Leap year check\n");
+	if(y % 400 == 0)
+		leap = 1;
+	else
+		if(y % 100 == 0)
+			leap = 0;
+		else
+			if(y % 4 == 0)
+				leap = 1;
+			else
+				leap = 0;
+	printf("feb check\n");
+	if((leap && m == 2 && d >29) || (!leap && m == 2 && d > 28))
+		return 0;
+	printf("non 31 days check\n");
+	if((m == 4 || m == 6 || m == 9 || m == 11) && d > 30)
+		return 0;
+
+	return 1;
 }
 
-void del(int connFd, MYSQL *sql)
-{
-	/**
-		DELETE command from Client.
-	**/
-	char sendMsg[MAXLINE], recvMsg[MAXLINE];
-	int n;
-
-
-}
-
-int verification(MYSQL *sql, char id[], char password[])
+int checkUser(MYSQL *sql, char id[], char password[])
 {
 	/**
 		Verifies the id and password in the USER database.
@@ -61,8 +151,8 @@ int verification(MYSQL *sql, char id[], char password[])
 		already taken.
 		In case of Log In, password is also matched to check if 
 		credentials are correct.
-		Return - 1, if the id exists
-				 0, otherwise
+		Return: 1, if the id exists
+				0, otherwise
 	**/
 	printf("In checkLogIn\n");
 	char query[] = "SELECT * FROM USER";
@@ -114,7 +204,7 @@ int verification(MYSQL *sql, char id[], char password[])
 	return exist;
 }
 
-void formatCheck(char recvMsg[], char errorMsg[], char id[], char password[], int *idError, int *passwordError)
+void checkFormat(char recvMsg[], char errorMsg[], char id[], char password[], int *idError, int *passwordError)
 {
 	/**
 		Check whether the entered id and password are in the correct format.
@@ -165,11 +255,594 @@ void formatCheck(char recvMsg[], char errorMsg[], char id[], char password[], in
 }
 
 
+
+/********************** Main Functionaliy Procedures **********************/
+
+
+void get(int connFd, MYSQL *sql, char msg[])
+{
+	/**
+		GET command from Client.
+	**/
+	printf("In get\n");
+	char sendMsg[MAXLINE];
+	char dbTable[MAXLINE], id[ID];
+	char query[MAXLINE] = "SHOW TABLES;";
+	char answer[MAXLINE];
+	int n, i, k, accept = 0;
+
+	for(i = 0; msg[i] != ' '; ++i)
+		dbTable[i] = msg[i];
+	dbTable[i++] = '\0';
+	stringUpper(dbTable);
+	
+	k = 0;
+	for( ; msg[i] != '\0'; ++i)
+		id[k++] = msg[i];
+	id[k] = '\0';
+	stringLower(id);
+	
+	accept = checkTable(sql, dbTable);
+	if(accept == -1)
+	{
+		printf("Permission denied\n");
+		strcpy(sendMsg, "PERMISSION DENIED\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		return;
+	}
+	if(!accept)
+	{
+		printf("Incorrect table name.\n");
+		strcpy(sendMsg, "TABLE NAME ERROR. CHECK TABLE NAME.\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		return;
+	}
+	// else
+	strcpy(query, "SELECT * FROM ");
+	strcat(query, dbTable);
+	strcat(query, " WHERE ID = \'");
+	strcat(query, id);
+	strcat(query, "\';");
+	printf("Query : %s\n", query);
+
+	if(mysql_query(sql, query))
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+	MYSQL_RES *result = mysql_store_result(sql);
+	if(result == NULL)
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+	MYSQL_ROW row = mysql_fetch_row(result);
+	if(row == NULL)
+		strcpy(answer, "NONEXISTENT\n");
+	else
+	{
+		strcpy(answer, "EXISTS\n");
+		strcat(answer, row[1]);
+		strcat(answer, "\n");
+	}
+	printf("Answer : %s\n", answer);
+	strcpy(sendMsg, answer);
+	if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+		printError('w');
+	mysql_free_result(result);
+	return;
+}
+
+
+
+void put(int connFd, MYSQL *sql, char msg[])
+{
+	/**
+		PUT command from Client.
+	**/
+	printf("In put\n");
+	char sendMsg[MAXLINE];
+	char query[MAXLINE];
+	char dbTable[MAXLINE], id[ID], data[MAXLINE];
+	char temp[MAXLINE], type, lenOk;
+	int n, i, j, k, count, accept = 0, len = 1, exist = 0;
+
+	for(i = 0; msg[i] != ' '; ++i)
+		dbTable[i] = msg[i];
+	dbTable[i++] = '\0';
+	stringUpper(dbTable);
+	
+	printf("%s\n", dbTable);
+	k = 0;
+	for( ; msg[i] != ' '; ++i)
+		id[k++] = msg[i];
+	id[k] = '\0';
+	stringLower(id);
+	printf("%s\n", id);
+	
+	k = 0;
+	i++;
+	for( ; msg[i] != '\0'; ++i)
+		data[k++] = msg[i];
+	data[k] = '\0';
+	printf("%s\n", data);
+
+	accept = checkTable(sql, dbTable);
+	if(accept == -1)
+	{
+		printf("Permission denied\n");
+		strcpy(sendMsg, "PERMISSION DENIED\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		return;
+	}
+	if(!accept)
+	{
+		printf("Incorrect table name.\n");
+		strcpy(sendMsg, "TABLE NAME ERROR. CHECK TABLE NAME.\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		return;
+	}
+
+	// else if the id already exists
+	strcpy(query, "SELECT * FROM ");
+	strcat(query, dbTable);
+	strcat(query, " WHERE ID = \'");
+	strcat(query, id);
+	strcat(query, "\';");
+
+	printf("query : %s\n", query);
+	if(mysql_query(sql, query))
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+	printf("query result\n");
+	MYSQL_RES *result = mysql_store_result(sql);
+	if(result == NULL)
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);	
+	}
+
+	MYSQL_ROW row;
+	printf("matching row\n");
+	while(row = mysql_fetch_row(result))
+	{
+		if(strcmp(id, row[0]) == 0)
+		{
+			printf("found\n");
+			exist = 1;
+			break;
+		}
+	}
+	if(exist)
+	{
+		printf("The value exists\n");
+		strcpy(sendMsg, "EXISTS.\nID EXISTS IN THE TABLE.\nDATA MAY DIFFER.");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		mysql_free_result(result);
+		return;
+	}
+
+	// else
+	strcpy(query, "DESCRIBE ");
+	strcat(query, dbTable);
+	strcat(query, ";");
+	printf("query : %s\n", query);
+	if(mysql_query(sql, query))
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+	printf("query result\n");
+	result = mysql_store_result(sql);
+	if(result == NULL)
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);	
+	}
+
+	count = 0;
+	printf("query matching\n");
+	while(row = mysql_fetch_row(result))
+	{
+		if(count == 0)
+		{
+			count++;
+			continue;
+		}
+		strcpy(temp, row[1]);
+		break;
+	} 
+	if(temp[0] == 'i' || temp[0] == 'I')
+		type = 'i';
+	else
+		if(temp[0] == 'v' || temp[0] == 'V')
+			type = 'v';
+		else
+			if(temp[0] == 'd' || temp[0] == 'D')
+				type = 'd';
+
+	exist = 0;
+	lenOk = 0;
+	if(type == 'd')
+	{
+		exist = checkDate(data);
+		if(!exist)
+		{
+			printf("Date format is incorrect.\n");
+			strcpy(sendMsg, "DATE FORMAT IS INCORRECT. IT SHOULD BE YYYY-MM-DD");
+		}
+	}
+	else
+		if(type != 'd')
+		{
+			for(j = 0; temp[j] != '\0'; ++j)
+				if(temp[j] < 48 || temp[j] > 57)
+					temp[j] = ' ';
+			len = atoi(temp);
+			if(strlen(data) <= 0 && strlen(data) > len)
+			{
+				lenOk = 0;
+				strcpy(sendMsg, "Enter some data upto length ");
+				sprintf(temp, "%d", len);
+				strcat(sendMsg, temp);
+			}
+			else
+				lenOk = 1;
+		}
+	
+	if(lenOk || exist)
+	{
+		// INSERT query
+		strcpy(query, "INSERT INTO ");
+		strcat(query, dbTable);
+		strcat(query, " VALUES (\'");
+		strcat(query, id);
+		strcat(query, "\' , \'");
+		strcat(query, data);
+		strcat(query, "\');");
+
+		printf("\nquery : %s\n", query);
+		printf("writing data\n");
+		if(mysql_query(sql, query))
+		{
+			fprintf(stderr, "%s\n", mysql_error(sql));
+			mysql_close(sql);
+			exit(1);
+		}
+
+		strcpy(sendMsg, "ADDED <");
+		strcat(sendMsg, id);
+		strcat(sendMsg, ", ");
+		strcat(sendMsg, data);
+		strcat(sendMsg, "> TO ");
+		strcat(sendMsg, dbTable);
+		strcat(sendMsg, "\n");
+	}
+
+	if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+		printError('w');
+	mysql_free_result(result);
+	return;
+}
+
+
+void del(int connFd, MYSQL *sql, char msg[])
+{
+	/**
+		DELETE command from Client.
+	**/
+	char sendMsg[MAXLINE];
+	char dbTable[MAXLINE], id[ID];
+	char query[MAXLINE], table[] = "USER";
+	int n, i, k, accept = 0, found = 0;
+
+	bzero(&sendMsg, MAXLINE);
+	for(i = 0; msg[i] != ' '; ++i)
+		dbTable[i] = msg[i];
+	dbTable[i++] = '\0';
+	stringUpper(dbTable);
+	k = 0;
+	for( ;msg[i] != '\0'; ++i)
+		id[k++] = msg[i];
+	id[k] = '\0';
+	stringLower(id);
+
+	if(strcmp(dbTable, table) == 0)
+	{
+		printf("Not allowed\n");
+		strcpy(sendMsg, "PERMISSION DENIED\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		return;
+	}
+
+	accept = checkTable(sql, dbTable);
+	if(accept == -1)
+	{
+		printf("Permission denied\n");
+		strcpy(sendMsg, "PERMISSION DENIED\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		return;
+	}
+	if(!accept)
+	{
+		printf("Incorrect table name\n");
+		strcpy(sendMsg, "TABLE NAME ERROR. CHECK TABLE NAME\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		return;
+	}
+
+	// else search the data in table
+	strcpy(query, "SELECT * FROM ");
+	strcat(query, dbTable);
+	strcat(query, " WHERE ID = \'");
+	strcat(query, id);
+	strcat(query, "\';");
+
+	printf("query %s\n", query);
+
+	if(mysql_query(sql, query))
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+
+	MYSQL_RES *result = mysql_store_result(sql);
+	if(result == NULL)
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);		
+	}
+
+	MYSQL_ROW row;
+	while(row = mysql_fetch_row(result))
+	{
+		if(strcmp(id, row[0]) == 0)
+		{
+			found = 1;
+			break;
+		}
+	}
+
+	// if data is not available on the table
+	if(!found)
+	{
+		printf("NONEXISTENT\n");
+		strcpy(sendMsg, "NONEXISTENT\n");
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		mysql_free_result(result);
+		return;
+	}
+
+	// else if data is available
+	strcpy(query, "DELETE FROM ");
+	strcat(query, dbTable);
+	strcat(query, " WHERE ID = \'");
+	strcat(query, id);
+	strcat(query, "\';");
+
+	printf("query : %s\n", query);
+
+	if(mysql_query(sql, query))
+	{
+		fprintf(stderr, "%s\n", mysql_error(sql));
+		mysql_close(sql);
+		exit(1);
+	}
+
+	strcpy(sendMsg, "DELETED\n");
+	if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+		printError('w');
+
+	mysql_free_result(result);
+	return;
+}
+
+
+int startCommunication(int connFd, MYSQL *sql)
+{
+	/**
+		Starts communication with the logged in client.
+		Return: 1, when clients logs out
+	**/
+	char options[MAXLINE];
+	char command[MAXLINE], operation[ID];
+	char tempCommand[MAXLINE];
+	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	int n, i, k, logout = 0, countSpace, wrongInput, notReachable, accept;
+
+	strcpy(options, "Here are your options.\nGET  PUT  DELETE  LOGOUT");
+	strcpy(sendMsg, options);
+	printf("Sending %s\n", sendMsg);
+		
+	if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+		printError('w');
+
+	while(1)
+	{	
+		bzero(&sendMsg, MAXLINE);
+		bzero(&recvMsg, MAXLINE);
+		bzero(&command, MAXLINE);
+		bzero(&operation, ID);
+		
+		if((n = read(connFd, recvMsg, MAXLINE)) < 0)
+			printError('r');
+
+		printf("%s", recvMsg);
+		
+		if(strcmp("logout", recvMsg) == EQUAL)
+		{
+			logout = 1;
+			printf("Logout successful.\n");
+			strcpy(sendMsg, "Logout successful.");
+			if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+				printError('w');
+			return logout;
+		}
+
+		wrongInput = 0;
+		countSpace = 0;
+		notReachable = 0;
+
+		for(i = 0; recvMsg[i] != ' '; ++i)
+		{
+			if(recvMsg[i] == '\n')
+			{
+				notReachable = 1;
+				break;
+			}
+			command[i] = recvMsg[i];
+		}
+		command[i++] = '\0';
+		strcpy(tempCommand, command);
+		stringLower(tempCommand);
+		printf("%s\n", tempCommand);
+		
+		if(!notReachable)
+		{
+			k = 0;
+			for( ; recvMsg[i] != '\n'; ++i)
+			{	
+				if(recvMsg[i] == '\'' || recvMsg[i] == '"')
+				{
+					wrongInput = 1;
+					break;
+				}
+				operation[k++] = recvMsg[i];
+			}
+			operation[k] = '\0';
+			printf("%s\n", operation);
+		}
+		if(wrongInput)
+		{
+			printf("Wrong input\n");
+			strcpy(sendMsg, "INCORRECT INPUT FORMAT\n");
+			if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+				printError('w');
+			continue;
+		}
+
+		if(strcmp("get", tempCommand) == 0)
+		{
+			for(i = 0; operation[i] != '\0';++i)
+				if(operation[i] == ' ')
+					countSpace++;
+			if(countSpace == 1)
+				get(connFd, sql, operation);
+			else
+			{
+				printf("get wrong format\n");
+				strcpy(sendMsg, "WRONG FORMAT : ");
+				strcat(sendMsg, command);
+				strcat(sendMsg, " ");
+				strcat(sendMsg, operation);
+				strcat(sendMsg, "\nCORRECT FORMAT : GET TABLENAME ID\n");
+				if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+					printError('w');
+			}
+		}
+		else
+			if(strcmp("put", tempCommand) == 0)
+			{
+				char *tempTable = (char*)malloc(MAXLINE*sizeof(char));
+				for(i = 0; operation[i] != ' '; ++i)
+					tempTable[i] = operation[i];
+				tempTable[i] = '\0';
+				stringUpper(tempTable);
+				printf("temptable : %s\n", tempTable);
+				accept = checkTable(sql, tempTable);
+				if(accept == -1)
+				{
+					printf("Permission denied\n");
+					strcpy(sendMsg, "PERMISSION DENIED\n");
+					if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+						printError('w');
+				}
+				else 
+					if(!accept)
+					{
+						printf("Incorrect table name.\n");
+						strcpy(sendMsg, "TABLE NAME ERROR. CHECK TABLE NAME.\n");
+						if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+							printError('w');
+					}
+					else
+					{
+						for(i = 0; operation[i] != '\0';++i)
+							if(operation[i] == ' ')
+								countSpace++;
+						if(countSpace == 2 && (strcmp("TELEPHONE", tempTable) == 0 || strcmp("EMAIL", tempTable) == 0 || strcmp("DOB", tempTable) == 0))
+							put(connFd, sql, operation);
+						else
+							if(countSpace >= 2 && strcmp("ADDRESS", tempTable) == 0)
+								put(connFd, sql, operation);
+							else
+							{
+								printf("put wrong format\n");
+								strcpy(sendMsg, "WRONG FORMAT : ");
+								strcat(sendMsg, command);
+								strcat(sendMsg, " ");
+								strcat(sendMsg, operation);
+								strcat(sendMsg, "\nCORRECT FORMAT : PUT TABLENAME ID DATA\n");
+								if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+									printError('w');
+							}
+						free(tempTable);
+					}
+			}
+			else
+				if(strcmp("delete", tempCommand) == 0)
+				{
+					for(i = 0; operation[i] != '\0';++i)
+						if(operation[i] == ' ')
+							countSpace++;
+					if(countSpace == 1)
+						del(connFd, sql, operation);
+					else
+					{
+						printf("delete wrong format\n");
+						strcpy(sendMsg, "WRONG FORMAT : ");
+						strcat(sendMsg, command);
+						strcat(sendMsg, " ");
+						strcat(sendMsg, operation);
+						strcat(sendMsg, "\nCORRECT FORMAT : DELETE TABLENAME ID\n");
+						if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+							printError('w');
+					}
+				}
+				else
+					{
+						printf("Wrong option.\n");
+						strcpy(sendMsg, "Wrong option.\n");
+						if((n = write(connFd, sendMsg, MAXLINE)) < 0)
+							printError('w');
+					}
+	}
+}
+
+
 int logIn(int connFd, MYSQL *sql)
 {
 	/**
-		Logs in user.
-		Return - 1, when user logs out.
+		Logs in the client.
 	**/
 	printf("In logIn\n.");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE], errorMsg[MAXLINE] = ""; 
@@ -192,29 +865,27 @@ int logIn(int connFd, MYSQL *sql)
 		
 		// ask ID and password from user to log in
 		printf("ask ID and password from user to log in\n");
-		n = write(connFd, sendMsg, MAXLINE);
-		if(n < 0)
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
 
 		// waiting for credentials
 		printf("waiting for credentials.\n");
-		n = read(connFd, recvMsg, MAXLINE);
-		if(n < 0)
+		if((n = read(connFd, recvMsg, MAXLINE)) < 0)
 			printError('w');
 		printf("%s\n", recvMsg);
 
-		// username and password format verification
-		formatCheck(recvMsg, errorMsg, id, password, &idError, &passwordError);
+		// username and password format checking
+		checkFormat(recvMsg, errorMsg, id, password, &idError, &passwordError);
 		strcpy(tempId, id);
 		stringLower(tempId);
 
 		if(idError == 0 && passwordError == 0)
 		{
 			printf("AlL OK\n");
-			exist = verification(sql, tempId, password);
+			exist = checkUser(sql, tempId, password);
 			if(exist)
 			{
-				char welcome[MAXLINE] = "Welcome ";
+				char welcome[MAXLINE] = "WELCOME ";
 				strcat(welcome, id);
 				strcpy(sendMsg, welcome);
 				printf("%s\n", sendMsg);
@@ -222,75 +893,33 @@ int logIn(int connFd, MYSQL *sql)
 				// sending welcome message
 				if((n = write(connFd, sendMsg, MAXLINE)) < 0)
 					printError('w');
-				//srand(time(NULL));
-				//loggedIn[++log_size] = rand();
-				break;
+
+				// start communication with the logged in client
+				logout = startCommunication(connFd, sql);
+				return logout;
 			}
+			// not registered yet
 			else
 			{
-				strcpy(errorMsg, "You need to register.");
-				n = write(connFd, errorMsg, MAXLINE);
-				if(n < 0)
+				strcpy(errorMsg, "ERROR. NO SUCH USER. You need to register.");
+				if((n = write(connFd, errorMsg, MAXLINE)) < 0)
 					printError('w');
-				break;
+				logout = 0;
+				return logout;
 			}
 		}
+		// id and/or password error
 		else
 		{
 			strcpy(sendMsg, errorMsg);
 			if((n = write(connFd, sendMsg, MAXLINE)) < 0)
 				printError('w');
-			break;
+			logout = 0;
+			return logout;
 		}
-	}
-
-	while(exist)
-	{
-		char options[] = "Here are your options.\nGET\nPUT\nDELETE\nLOGOUT.";
-		strcpy(sendMsg, options);
-		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
-			printError('w');
-
-		bzero(&recvMsg, MAXLINE);
-		if((n = read(connFd, recvMsg, MAXLINE)) < 0)
-			printError('r');
-
-		printf("%s", recvMsg);
-		stringLower(recvMsg);
-
-		if(strcmp("get", recvMsg) == EQUAL)
-		{
-			get(connFd, sql);
-		}
-		else
-			if(strcmp("put", recvMsg) == EQUAL)
-			{
-				put(connFd, sql);
-			}
-			else
-				if(strcmp("delete", recvMsg) == EQUAL)
-				{
-					del(connFd, sql);
-				}
-				else
-					if(strcmp("logout", recvMsg) == EQUAL)
-					{
-						logout = 1;
-						printf("Logout successful.\n");
-						strcpy(sendMsg, "Logout successful.");
-						if((n = write(connFd, sendMsg, MAXLINE)) < 0)
-							printError('w');
-						return logout;
-					}
-					else
-					{
-						printf("Wrong option.\n");
-						strcpy(sendMsg, "Wrong option.\n");
-						if((n = write(connFd, sendMsg, MAXLINE)) < 0)
-							printError('w');
-					}
 	}
 }
+
 
 void regis(int connFd, MYSQL *sql)
 {
@@ -316,33 +945,30 @@ void regis(int connFd, MYSQL *sql)
 		
 		// ask for credentials
 		printf("ask for credentials\n");
-		n = write(connFd, sendMsg, MAXLINE);
-		if(n < 0)
+		if((n = write(connFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
 		
 		// reading credentials from client
 		printf("reading credentials from client\n");
-		n = read(connFd, recvMsg, MAXLINE);
-		if(n < 0)
+		if((n = read(connFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
 		printf("\nClient : \n%s\n", recvMsg);
 
 		// username and password format validation
-		formatCheck(recvMsg, errorMsg, id, password, &idError, &passwordError);
+		checkFormat(recvMsg, errorMsg, id, password, &idError, &passwordError);
 		stringLower(id);
 
 		if(idError == 0 && passwordError == 0)
 		{
 			printf("All OK\n");
-			exist = verification(sql, id, NULL);
+			exist = checkUser(sql, id, NULL);
 			if(!exist)
 				break;
 			else
 			{
 				strcpy(errorMsg, "ID already exists. Choose a different one.");
 				printf("Same id message sent.");
-				n = write(connFd, errorMsg, MAXLINE);
-				if(n < 0)
+				if((n = write(connFd, errorMsg, MAXLINE)) < 0)
 					printError('w');
 			}
 		}
@@ -350,8 +976,7 @@ void regis(int connFd, MYSQL *sql)
 		{
 			strcat(errorMsg, "Enter credentials again.\n");
 			printf("Error message sent.\n");
-			n = write(connFd, errorMsg, MAXLINE);
-			if(n < 0)
+			if((n = write(connFd, errorMsg, MAXLINE)) < 0)
 				printError('w');
 		}
 	}
@@ -371,10 +996,10 @@ void regis(int connFd, MYSQL *sql)
 
 	strcpy(sendMsg, success);
 	printf("success\n");
-	n = write(connFd, sendMsg, MAXLINE);
-	if(n < 0)
+	if((n = write(connFd, sendMsg, MAXLINE)) < 0)
 		printError('w');
 }
+
 
 void startServer(int connFd)
 {
@@ -413,13 +1038,11 @@ void startServer(int connFd)
 	{
 		// start server
 		strcpy(sendMsg, start);
-		n = write(connFd, sendMsg, MAXLINE);
-		if(n < 0)
+		if((n = write(connFd, sendMsg, MAXLINE))<0)
 			printError('w');
 
 		bzero(&recvMsg, MAXLINE);
-		n = read(connFd, recvMsg, MAXLINE);
-		if(n < 0)
+		if((n = read(connFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
 		
 		printf("%s\n", recvMsg);
@@ -443,10 +1066,14 @@ void startServer(int connFd)
 				printf("Wrong option.\n");
 			}
 		if(logout)
+		{
+			printf("Client %d has logged out.\n", connFd);
+			mysql_close(sql);
 			return;
+		}
 	}
-	mysql_close(sql);
 }
+
 
 int main(int argc, char const *argv[])
 {
