@@ -54,7 +54,7 @@ void printError(char c)
 					perror("ERROR. Writing on socket.");
 					break;
 		default:
-					perror("ERROR. Unkown.");
+					perror("ERROR. Unknown.");
 	}		
 	exit(1);
 }

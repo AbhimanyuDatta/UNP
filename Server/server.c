@@ -15,7 +15,7 @@
 #define ID 20
 #define PASSWORD 8
 #define EQUAL -10
-#define SLEEP 3000
+#define SLEEP 5
 
 
 /**************************** Helper Functions ****************************/
@@ -929,7 +929,7 @@ void regis(int connFd, MYSQL *sql)
 	printf("Entered into register.\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE], errorMsg[MAXLINE] = "";
 	char id[ID], password[PASSWORD];
-	char regMsg[] = "Enter the desired ID and Password.\nID should be between 5 and 20 characters.\nPassword should be between 4 and 8 characters.\nEnter as ID<space>Password.\n";
+	char regMsg[] = "Enter the desired ID and Password.\nID should be between 5 and 20 characters. Password should be between 4 and 8 characters.\nEnter as ID<space>Password.\n";
 	char success[] = "Registered successfully";
 	char query[MAXLINE] = "INSERT INTO USER VALUES (\'";
 	int n, i, k, count;
@@ -1007,11 +1007,8 @@ void startServer(int connFd)
 		Start the server side operations.
 	**/
 	printf("In startServer.\n");
-	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	char sendMsg[MAXLINE], recvMsg[MAXLINE], temp[MAXLINE];
 	char start[] = "Do you want to Register or Log In?";
-	char regSucc[] = "Registered successfully.";
-	char logSucc[] = "Successfully Logged In.";
-	char logOut[] = "Successfully Logged Out.";
 	int n, logout = 0;
 	
 	// connect mysql
@@ -1042,8 +1039,11 @@ void startServer(int connFd)
 			printError('w');
 
 		bzero(&recvMsg, MAXLINE);
+		
+		//sleep(SLEEP);
 		if((n = read(connFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
+		//while((n = read(connFd, temp, MAXLINE)) > 0);
 		
 		printf("%s\n", recvMsg);
 		stringLower(recvMsg);
@@ -1051,7 +1051,6 @@ void startServer(int connFd)
 		
 		if(strcmp("register", recvMsg) == EQUAL)
 		{
-			printf("Client %d wants to register.\n", connFd);
 			regis(connFd, sql);
 			logout = logIn(connFd, sql);
 		}
@@ -1067,7 +1066,6 @@ void startServer(int connFd)
 			}
 		if(logout)
 		{
-			printf("Client %d has logged out.\n", connFd);
 			mysql_close(sql);
 			return;
 		}

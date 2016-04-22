@@ -6,12 +6,18 @@
 #include<netinet/in.h>
 #include<string.h>
 #include<unistd.h>
+#include<poll.h>
+#include<sys/select.h>
 #include"myheader.h"
 
 #define MAXLINE 250
 #define EQUAL -10
-#define TIMEOUT 2000
-#define RETRIES 3
+#define TIMEOUT 1000
+#define RETRIES 4
+
+struct pollfd fd;
+fd_set fds;
+struct timeval tv;
 
 
 /********************** Main Functionality Procedures **********************/
@@ -45,8 +51,7 @@ int startCommunication(int sockFd)
 		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
 		
-		printf("\nServer : ");
-		fputs(recvMsg, stdout);
+		printf("\nServer : \n%s", recvMsg);
 		stringLower(recvMsg);
 		if(strcmp("logout successful.", recvMsg) == 0)
 		{
@@ -78,6 +83,11 @@ int logIn(int sockFd)
 	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 		printError('w');
 
+	if(strlen(recvMsg) == 0)
+	{
+		fputs("Server not responding. Closing connection.", stdout);
+		exit(1);
+	}
 	printf("\nServer :\n%s\n", recvMsg);
 	printf("\nClient : \n");
 	fgets(sendMsg, MAXLINE, stdin);
@@ -126,6 +136,11 @@ void regis(int sockFd)
 		
 		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
+		if(strlen(recvMsg) == 0)
+		{
+			fputs("Server not responding. Closing connection.", stdout);
+			exit(1);
+		}
 		printf("\nServer : \n%s\n", recvMsg);
 		
 		printf("\nClient : \n");
@@ -160,8 +175,8 @@ void startClient(int sockFd)
 	**/
 	printf("In startClient.\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE];
-	int n;
-	int logout = 0;
+	int n, pollRet;
+	int logout = 0, retry = 0;
 	
 	while(1)
 	{
@@ -175,13 +190,29 @@ void startClient(int sockFd)
 			printError('r');
 		printf("\nServer : \n%s\n", recvMsg);
 		
-		printf("\nClient : \n");
-		fgets(sendMsg, MAXLINE, stdin);
-
-		// sending response to server
 		printf("sending response to server\n");
-		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
-			printError('w');
+		printf("\nClient : \n");
+		
+		// sending response to server
+		fgets(sendMsg, MAXLINE, stdin);
+		/*pollRet = poll(&fd, 1, TIMEOUT);
+		if(!pollRet)
+		{
+			pollRet = poll(&fd, 1, TIMEOUT);
+			while(retry++ < RETRIES)
+			{
+				if(!pollRet)
+				{
+					fputs("Timeout.", stdout);
+					printf("\nRetry %d\n", retry);
+					if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
+						printError('w');
+				}
+			}
+		}
+		else*/
+			if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
+				printError('w');
 		
 		// register
 		if(strcmp("register", sendMsg) == EQUAL)
@@ -231,6 +262,15 @@ int main(int argc, char const *argv[])
 	// opening the socket
 	if((sockFd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		printError('o');
+	
+	//fd.fd = sockFd;
+	//fd.events = POLLIN;
+
+	/*FD_ZERO(&fds);
+	FD_SET(sockFd, &fds);
+	tv.tv_sec = TIMEOUT;
+	tv.tv_usec = 0;*/
+
 	if((server = gethostbyname(argv[1])) < 0)
 		printError('h');
 	
