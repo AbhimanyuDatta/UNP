@@ -56,9 +56,6 @@ void printError(char c)
 		case 'c':
 					perror("ERROR. Connecting socket.");
 					break;
-		case 'e':
-					perror("ERROR. Client ended connection.");
-					break;
 		case 'f':
 					perror("ERROR. Fork a child.");
 					break;
@@ -70,6 +67,9 @@ void printError(char c)
 					break;
 		case 'r':
 					perror("ERROR. Reading from socket.");
+					break;
+		case 't':
+					perror("ERROR. Client terminated connection.");
 					break;
 		case 'w':
 					perror("ERROR. Writing on socket.");
@@ -731,9 +731,12 @@ int startCommunication(int connFd, MYSQL *sql, char tempId[])
 	strcpy(options, "Here are your options.\nGET  PUT  DELETE  LOGOUT");
 	strcpy(sendMsg, options);
 	printf("Sending %s\n", sendMsg);
-		
+	
+	sleep(SLEEP);
 	if((n = write(connFd, sendMsg, MAXLINE)) < 0)
 		printError('w');
+	if(n == 0)
+		printError('e');
 
 	while(1)
 	{	

@@ -16,9 +16,9 @@
 
 
 struct pollfd fd;
-fd_set fds;
+/*fd_set fds;
 struct timeval tv;
-int maxfdp1;
+int maxfdp1;*/
 
 
 /**************************** Helper Functions ****************************/
@@ -65,9 +65,6 @@ void printError(char c)
 		case 'c':
 					perror("ERROR. Connecting socket.");
 					break;
-		case 'e':
-					perror("ERROR. Server ended connection.");
-					break;
 		case 'f':
 					perror("ERROR. Fork a child.");
 					break;
@@ -79,6 +76,9 @@ void printError(char c)
 					break;
 		case 'r':
 					perror("ERROR. Reading from socket.");
+					break;
+		case 't':
+					perror("ERROR. Server terminated connection.");
 					break;
 		case 'w':
 					perror("ERROR. Writing on socket.");
@@ -101,32 +101,56 @@ int startCommunication(int sockFd)
 	**/
 	//printf("In startCommunication.\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE];
-	int n, logout = 0;
+	int n, logout = 0, retVal = 0;
 
 	// server providing options
 	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 		printError('r');
-	printf("\nServer :\n%s\n", recvMsg);
+	printf("\nServer :\n%s\n\nClient :\n", recvMsg);
 	
 	while(1)
 	{
-		printf("\nClient : \n");
-		fgets(sendMsg, MAXLINE, stdin);
+		/*FD_SET(fileno(stdin), &fds);
+		FD_SET(sockFd, &fds);
+		maxfdp1 = maximum(fileno(stdin), sockFd) + 1;
+		retVal = select(maxfdp1, &fds, NULL, NULL, &tv);*/
 
-		// choosing an option
-		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
-			printError('w');
-		
-		// server's reply
-		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
-			printError('r');
-		
-		printf("\nServer : \n%s", recvMsg);
-		stringLower(recvMsg);
-		if(strcmp("logout successful.", recvMsg) == 0)
+		retVal = poll(&fd, 1, TIMEOUT);
+		if(retVal == 0)
 		{
-			logout = 1;
-			return logout;
+			fputs("Timeout.\n", stdout);
+			return -1;
+		}
+		else
+		{
+		/*	if(FD_ISSET(fileno(stdin), &fds))
+			{
+*/
+				fgets(sendMsg, MAXLINE, stdin);
+
+				// choosing an option
+				if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
+					printError('w');
+				if(n == 0)
+					printError('t');
+		/*	}
+			
+			if(FD_ISSET(sockFd, &fds))
+			{
+		*/		// server's reply
+				if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
+					printError('r');
+				if(n == 0)
+					printError('t');
+				
+				printf("\nServer : \n%s\nClient : \n ", recvMsg);
+				stringLower(recvMsg);
+				if(strcmp("logout successful.", recvMsg) == 0)
+				{
+					logout = 1;
+					return logout;
+				}
+			//}
 		}
 	}
 }
@@ -152,6 +176,8 @@ int logIn(int sockFd)
 	//printf("server asking for credentials to log in\n");
 	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 		printError('w');
+	if(n == 0)
+		printError('t');
 
 	if(strlen(recvMsg) == 0)
 	{
@@ -165,10 +191,14 @@ int logIn(int sockFd)
 	// providing log in credentials
 	if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 		printError('w');
+	if(n == 0)
+		printError('t');
 	
 	bzero(&recvMsg, MAXLINE);
 	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 		printError('r');
+	if(n == 0)
+		printError('t');
 	printf("\n%s\n\n", recvMsg);
 
 	// matching the welcome message and id
@@ -206,6 +236,8 @@ void regis(int sockFd)
 		
 		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
+		if(n == 0)
+			printError('t');
 		if(strlen(recvMsg) == 0)
 		{
 			fputs("Server not responding. Closing connection.", stdout);
@@ -220,11 +252,15 @@ void regis(int sockFd)
 		printf("providing credentials to server\n");
 		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
+		if(n == 0)
+			printError('t');
 
 		// response from the server
 		printf("response from the server\n");
 		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
+		if(n == 0)
+			printError('t');
 		
 		stringLower(recvMsg);
 		printf("server : \n%s\n", recvMsg);
@@ -255,14 +291,10 @@ void startClient(int sockFd)
 		bzero(&sendMsg, MAXLINE);
 
 		// message from the server
-		//printf("message from the server\n");
-		/*retVal = select(maxfdp1, &fds, NULL, NULL, &tv);
-		if(!retVal)
-			fputs("Timeout.", stdout);
-
-		if(FD_ISSET(sockFd, &fds))*/
-			if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
-				printError('r');
+		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
+			printError('r');
+		if(n == 0)
+			printError('t');
 		printf("\nServer : \n%s\n", recvMsg);
 		
 		//printf("sending response to server\n");
@@ -272,6 +304,8 @@ void startClient(int sockFd)
 		fgets(sendMsg, MAXLINE, stdin);
 		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
+		if(n == 0)
+			printError('t');
 		
 		// register
 		if(strcmp("register", sendMsg) == EQUAL)
@@ -322,12 +356,15 @@ int main(int argc, char const *argv[])
 	if((sockFd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		printError('o');
 
-	FD_ZERO(&fds);
+	/*FD_ZERO(&fds);
 	FD_SET(sockFd, &fds);
 	FD_SET(fileno(stdin), &fds);
 	maxfdp1 = maximum(fileno(stdin), sockFd) + 1;
 	tv.tv_sec = TIMEOUT;
 	tv.tv_usec = 0;
+*/
+	fd.fd = sockFd | fileno(stdin);
+	fd.events = POLLIN | POLLRDNORM;
 
 	if((server = gethostbyname(argv[1])) < 0)
 		printError('h');
