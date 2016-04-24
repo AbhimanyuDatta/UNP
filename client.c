@@ -7,19 +7,17 @@
 #include<string.h>
 #include<unistd.h>
 #include<poll.h>
-#include<sys/select.h>
+#include<time.h>
 
 #define EQUAL   -10
-#define RETRIES 4
+#define RETRIES 2
 #define MAXLINE 256
-#define TIMEOUT 1000
+#define TIMEOUT 3000
+#define SERVERCRASH 5
 
 
 struct pollfd fd;
-/*fd_set fds;
-struct timeval tv;
-int maxfdp1;*/
-
+int rndm, r;
 
 /**************************** Helper Functions ****************************/
 
@@ -101,57 +99,91 @@ int startCommunication(int sockFd)
 	**/
 	//printf("In startCommunication.\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE];
-	int n, logout = 0, retVal = 0;
+	int n, logout = 0, retVal = 0, i = 0, crash;
 
 	// server providing options
 	if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 		printError('r');
-	printf("\nServer :\n%s\n\nClient :\n", recvMsg);
-	
+	printf("\nServer :\n%s\n", recvMsg);
+
+	r = rand()%3;		// these values are generated only once, otherwise
+	crash = rand()%10;  // they disrupt the normal flow of the communication
+
 	while(1)
 	{
-		/*FD_SET(fileno(stdin), &fds);
-		FD_SET(sockFd, &fds);
-		maxfdp1 = maximum(fileno(stdin), sockFd) + 1;
-		retVal = select(maxfdp1, &fds, NULL, NULL, &tv);*/
+		// choosing an option
 
-		retVal = poll(&fd, 1, TIMEOUT);
-		if(retVal == 0)
+		fputs("\nClient : \n", stdout);
+		fgets(sendMsg, MAXLINE, stdin);
+		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
+			printError('w');
+		if(n == 0)
+			printError('t');
+		stringLower(sendMsg);
+		if(strcmp("unexpected answer", sendMsg) == EQUAL)
 		{
-			fputs("Timeout.\n", stdout);
-			return -1;
+			if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
+				printError('r');
+			if(n == 0)
+				printError('t');
+			return 1;
 		}
-		else
-		{
-		/*	if(FD_ISSET(fileno(stdin), &fds))
-			{
-*/
-				fgets(sendMsg, MAXLINE, stdin);
 
-				// choosing an option
-				if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
-					printError('w');
-				if(n == 0)
-					printError('t');
-		/*	}
-			
-			if(FD_ISSET(sockFd, &fds))
+		if(crash == SERVERCRASH) // simulate server crash
+		{
+			retVal = poll(&fd, 1, TIMEOUT);
+			if(retVal == 0)
 			{
-		*/		// server's reply
+				fputs("Timeout\n", stdout);
+				sleep(TIMEOUT/1000);
+				i = 0;
+				while(i++ < RETRIES)
+				{
+					fputs("Retrying\n", stdout);
+					sleep(TIMEOUT/1000);
+				}
+				fputs("Server seems unreachable.\n", stdout);
+				sleep(1);
+				fputs("Logging out\n", stdout);
+				return 1;
+			}
+		}
+
+		if(rndm == r) // simulate timeout and server and client out of sync
+		{
+			r = 5;
+			retVal = poll(&fd, 1, TIMEOUT);
+			if(retVal == 0)
+			{
+				fputs("Timeout\n", stdout);
+				sleep(1);
+				while(i++ < RETRIES)
+				{
+					fputs("Retrying\n", stdout);
+					sleep(1);
+				}
+			}
+			else
 				if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 					printError('r');
 				if(n == 0)
 					printError('t');
-				
-				printf("\nServer : \n%s\nClient : \n ", recvMsg);
-				stringLower(recvMsg);
-				if(strcmp("logout successful.", recvMsg) == 0)
-				{
-					logout = 1;
-					return logout;
-				}
-			//}
 		}
+		else
+		{
+			if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
+				printError('r');
+			if(n == 0)
+				printError('t');
+		}
+		printf("\nServer : \n%s", recvMsg);
+		stringLower(recvMsg);
+		if(strcmp("logout successful.", recvMsg) == 0)
+		{
+			logout = 1;
+			return logout;
+		}
+		
 	}
 }
 
@@ -356,15 +388,12 @@ int main(int argc, char const *argv[])
 	if((sockFd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 		printError('o');
 
-	/*FD_ZERO(&fds);
-	FD_SET(sockFd, &fds);
-	FD_SET(fileno(stdin), &fds);
-	maxfdp1 = maximum(fileno(stdin), sockFd) + 1;
-	tv.tv_sec = TIMEOUT;
-	tv.tv_usec = 0;
-*/
-	fd.fd = sockFd | fileno(stdin);
+	fd.fd = 0;
 	fd.events = POLLIN | POLLRDNORM;
+
+	// a random number to simulate timeout
+	srand(time(NULL));
+	rndm = rand()%3;
 
 	if((server = gethostbyname(argv[1])) < 0)
 		printError('h');
