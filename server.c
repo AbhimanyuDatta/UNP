@@ -8,6 +8,7 @@
 #include<unistd.h>
 #include<mysql.h>
 #include<my_global.h>
+#include<poll.h>
 
 #define EQUAL    -10
 #define LISTENQ  5
@@ -15,7 +16,9 @@
 #define PASSWORD 8
 #define ID       20
 #define MAXLINE  256
+#define TIMEOUT  1000
 
+struct pollfd fd;
 
 /**************************** Helper Functions ****************************/
 
@@ -139,7 +142,7 @@ int checkDate(char data[])
 	char year[5], month[3], date[3];
 	int i, j, k;
 	int y, m, d, leap;
-	printf("%s\n", data);
+	//printf("%s\n", data);
 
 	for(i = 0; data[i] != '-'; ++i)
 	{
@@ -148,7 +151,7 @@ int checkDate(char data[])
 		year[i] = data[i];
 	}
 	year[i++] = '\0';
-	printf("%s\n", year);
+	//printf("%s\n", year);
 	for(j = 0; data[i] != '-'; ++i)
 	{
 		if(data[i] < 48 || data[i] > 57)
@@ -156,7 +159,7 @@ int checkDate(char data[])
 		month[j++] = data[i];
 	}
 	month[j] = '\0';
-	printf("%s\n", month);
+	//printf("%s\n", month);
 	i++;
 	for(k = 0; data[i] != '\0'; ++i)
 	{
@@ -165,7 +168,7 @@ int checkDate(char data[])
 		date[k++] = data[i];
 	}
 	date[k] = '\0';
-	printf("%s\n", date);
+	//printf("%s\n", date);
 	if((strlen(date) != 2) || (strlen(month) != 2) || (strlen(year) != 4))
 		return 0;
 
@@ -290,9 +293,9 @@ void checkFormat(char recvMsg[], char errorMsg[], char id[], char password[], in
 	printf("Id : %s\n", id);
 	count = 0;
 	k = 0;
-	printf("i : %d\n", i);
+	//printf("i : %d\n", i);
 	i++;
-	printf("i : %d\n", i);
+	//printf("i : %d\n", i);
 	for( ; recvMsg[i] != '\n'; ++i)
 	{
 		count++;
@@ -743,8 +746,9 @@ int startCommunication(int connFd, MYSQL *sql, char tempId[])
 	char options[MAXLINE];
 	char command[MAXLINE], operation[ID];
 	char tempCommand[MAXLINE];
-	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	char sendMsg[MAXLINE], recvMsg[MAXLINE], tempMsg[MAXLINE];
 	int n, i, k, logout = 0, countSpace, wrongInput, notReachable, accept;
+	int retVal = 0;
 
 	strcpy(options, "Here are your options.\nGET  PUT  DELETE  LOGOUT");
 	strcpy(sendMsg, options);
@@ -768,10 +772,17 @@ int startCommunication(int connFd, MYSQL *sql, char tempId[])
 		if(n == 0)
 			printError('t');
 
-		stringLower(recvMsg);
+		// discard incoming message
+		if(recvMsg[0] >= 48 && recvMsg[0] <= 57)
+		{
+			printf("discarded message");
+			continue;
+		}
+		strcpy(tempMsg, recvMsg);
+		stringLower(tempMsg);
 		printf("%s", recvMsg);
 		
-		if(strcmp("unexpected answer", recvMsg) == EQUAL)
+		if(strcmp("unexpected response", tempMsg) == EQUAL)
 		{
 			strcpy(sendMsg, "Server and client are out of sync.");
 			fputs(sendMsg, stdout);
@@ -782,7 +793,7 @@ int startCommunication(int connFd, MYSQL *sql, char tempId[])
 			return 1;
 		}
 		
-		if(strcmp("logout", recvMsg) == EQUAL)
+		if(strcmp("logout", tempMsg) == EQUAL)
 		{
 			logout = 1;
 			printf("%s logged out successful.\n", tempId);
@@ -837,6 +848,14 @@ int startCommunication(int connFd, MYSQL *sql, char tempId[])
 				printError('t');
 			continue;
 		}
+		retVal = poll(&fd, 1, TIMEOUT);
+		if(retVal)
+			if((n = read(connFd, recvMsg, MAXLINE)) > 0)
+				if(recvMsg[0] >= 48 && recvMsg[0] <= 57)
+				{
+					printf("discard message\n");
+					continue;
+				}
 
 		if(strcmp("get", tempCommand) == 0)
 		{
@@ -1017,7 +1036,7 @@ int logIn(int connFd, MYSQL *sql)
 			// not registered yet
 			else
 			{
-				strcpy(errorMsg, "ERROR. NO SUCH USER. You need to register.");
+				strcpy(errorMsg, "ERROR. LOGIN CREDENTIALS DON'T MATCH.");
 				if((n = write(connFd, errorMsg, MAXLINE)) < 0)
 					printError('w');
 				if(n == 0)
@@ -1246,6 +1265,8 @@ int main(int argc, char const *argv[])
 		// run the child process
 		if(pId == 0)
 		{
+			fd.fd = 0;
+			fd.events = POLLIN | POLLRDNORM;
 			close(listenFd);
 			startServer(connFd);
 			exit(0);

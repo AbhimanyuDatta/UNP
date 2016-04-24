@@ -9,12 +9,11 @@
 #include<poll.h>
 #include<time.h>
 
-#define EQUAL   -10
-#define RETRIES 2
-#define MAXLINE 256
-#define TIMEOUT 3000
+#define EQUAL       -10
+#define RETRIES     2
 #define SERVERCRASH 5
-
+#define MAXLINE     256
+#define TIMEOUT     3000
 
 struct pollfd fd;
 int rndm, r;
@@ -98,7 +97,7 @@ int startCommunication(int sockFd)
 		Return: 1, when the user has successfully logged out.
 	**/
 	//printf("In startCommunication.\n");
-	char sendMsg[MAXLINE], recvMsg[MAXLINE];
+	char sendMsg[MAXLINE], recvMsg[MAXLINE], discard[MAXLINE], temp[MAXLINE];
 	int n, logout = 0, retVal = 0, i = 0, crash;
 
 	// server providing options
@@ -106,13 +105,13 @@ int startCommunication(int sockFd)
 		printError('r');
 	printf("\nServer :\n%s\n", recvMsg);
 
-	r = rand()%3;		// these values are generated only once, otherwise
+	r = rand()%10;		// these values are generated only once, otherwise
 	crash = rand()%10;  // they disrupt the normal flow of the communication
 
 	while(1)
 	{
 		// choosing an option
-
+		printf("%d %d %d ", rndm, r, crash);
 		fputs("\nClient : \n", stdout);
 		fgets(sendMsg, MAXLINE, stdin);
 		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
@@ -120,17 +119,24 @@ int startCommunication(int sockFd)
 		if(n == 0)
 			printError('t');
 		stringLower(sendMsg);
-		if(strcmp("unexpected answer", sendMsg) == EQUAL)
+		
+		if(strcmp("unexpected response", sendMsg) == EQUAL)
 		{
-			if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
-				printError('r');
+			while(n = read(sockFd, recvMsg, MAXLINE))
+			{
+				printf("\nServer : \n%s\n", recvMsg);
+			}
 			if(n == 0)
 				printError('t');
 			return 1;
 		}
 
-		if(crash == SERVERCRASH) // simulate server crash
+		if(crash == SERVERCRASH) // simulate server crash : done
 		{
+			bzero(&temp, MAXLINE);
+			bzero(&discard, MAXLINE);
+			sprintf(discard, "%d", r);
+			strcat(discard, sendMsg);
 			retVal = poll(&fd, 1, TIMEOUT);
 			if(retVal == 0)
 			{
@@ -139,9 +145,16 @@ int startCommunication(int sockFd)
 				i = 0;
 				while(i++ < RETRIES)
 				{
-					fputs("Retrying\n", stdout);
+					fputs("Retrying. Sending request again.\n", stdout);
+					n = write(sockFd, discard, MAXLINE);
+					retVal = poll(&fd, 1, TIMEOUT);
+					if(retVal)
+						if((n = read(sockFd, temp, MAXLINE)) == 0)
+							printError('t');
 					sleep(TIMEOUT/1000);
 				}
+				if(strlen(temp) > 0)
+					fputs(temp, stdout);
 				fputs("Server seems unreachable.\n", stdout);
 				sleep(1);
 				fputs("Logging out\n", stdout);
@@ -151,15 +164,21 @@ int startCommunication(int sockFd)
 
 		if(rndm == r) // simulate timeout and server and client out of sync
 		{
-			r = 5;
+			r = 11;
 			retVal = poll(&fd, 1, TIMEOUT);
 			if(retVal == 0)
 			{
 				fputs("Timeout\n", stdout);
 				sleep(1);
+				i = 0;
 				while(i++ < RETRIES)
 				{
-					fputs("Retrying\n", stdout);
+					fputs("Retrying. Sending again.\n", stdout);
+					n = write(sockFd, sendMsg, MAXLINE);
+					retVal = poll(&fd, 1, TIMEOUT);
+					if(retVal)
+						if((n = read(sockFd, recvMsg, MAXLINE)) == 0)
+							printError('t');
 					sleep(1);
 				}
 			}
@@ -281,21 +300,21 @@ void regis(int sockFd)
 		fgets(sendMsg, MAXLINE, stdin);
 
 		// providing credentials to server
-		printf("providing credentials to server\n");
+		//printf("providing credentials to server\n");
 		if((n = write(sockFd, sendMsg, MAXLINE)) < 0)
 			printError('w');
 		if(n == 0)
 			printError('t');
 
 		// response from the server
-		printf("response from the server\n");
+		//printf("response from the server\n");
 		if((n = read(sockFd, recvMsg, MAXLINE)) < 0)
 			printError('r');
 		if(n == 0)
 			printError('t');
 		
 		stringLower(recvMsg);
-		printf("server : \n%s\n", recvMsg);
+		printf("\nServer : \n%s\n", recvMsg);
 		//printf("%d", strcmp("success", recvMsg));
 		if(strcmp("registered successfully", recvMsg) == 0)
 		{
@@ -393,7 +412,7 @@ int main(int argc, char const *argv[])
 
 	// a random number to simulate timeout
 	srand(time(NULL));
-	rndm = rand()%3;
+	rndm = rand()%10;
 
 	if((server = gethostbyname(argv[1])) < 0)
 		printError('h');
