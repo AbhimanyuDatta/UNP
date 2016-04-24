@@ -8,18 +8,77 @@
 #include<unistd.h>
 #include<mysql.h>
 #include<my_global.h>
-#include"myheader.h"
 
-#define MAXLINE 250
-#define LISTENQ 5
-#define ID 20
+#define EQUAL    -10
+#define LISTENQ  5
+#define SLEEP    5
 #define PASSWORD 8
-#define EQUAL -10
-#define SLEEP 5
+#define ID       20
+#define MAXLINE  256
 
 
 /**************************** Helper Functions ****************************/
 
+
+void stringLower(char *str)
+{
+	/**Convert a string with uppercase letters to one with all lowercase.**/
+	while(*str)
+	{
+		if(*str >= 65 && *str <= 90)
+			*str += 32;
+		str++;
+	}
+}
+
+void stringUpper(char *str)
+{
+	/**Convert a string with lowercase letters to one with all uppercase.**/
+	while(*str)
+	{
+		if(*str >= 97 && *str <= 122)
+			*str -= 32;
+		str++;
+	}
+}
+
+void printError(char c)
+{
+	/**Printing error messages for socket functions.**/
+	switch(c)
+	{
+		case 'a':
+					perror("ERROR. Accepting socket.");
+					break;
+		case 'b':
+					perror("ERROR. Binding socket.");
+					break;
+		case 'c':
+					perror("ERROR. Connecting socket.");
+					break;
+		case 'e':
+					perror("ERROR. Client ended connection.");
+					break;
+		case 'f':
+					perror("ERROR. Fork a child.");
+					break;
+		case 'h':
+					perror("ERROR. No such host.");
+					break;
+		case 'o':
+					perror("ERROR. Opening socket.");
+					break;
+		case 'r':
+					perror("ERROR. Reading from socket.");
+					break;
+		case 'w':
+					perror("ERROR. Writing on socket.");
+					break;
+		default:
+					perror("ERROR. Unknown.");
+	}		
+	exit(1);
+}
 
 int checkTable(MYSQL *sql, char dbTable[])
 {
@@ -256,7 +315,7 @@ void checkFormat(char recvMsg[], char errorMsg[], char id[], char password[], in
 
 
 
-/********************** Main Functionaliy Procedures **********************/
+/********************* Main Functionality Procedures **********************/
 
 
 void get(int connFd, MYSQL *sql, char msg[])
@@ -657,7 +716,7 @@ void del(int connFd, MYSQL *sql, char msg[])
 }
 
 
-int startCommunication(int connFd, MYSQL *sql)
+int startCommunication(int connFd, MYSQL *sql, char tempId[])
 {
 	/**
 		Starts communication with the logged in client.
@@ -691,7 +750,7 @@ int startCommunication(int connFd, MYSQL *sql)
 		if(strcmp("logout", recvMsg) == EQUAL)
 		{
 			logout = 1;
-			printf("Logout successful.\n");
+			printf("%s logged out successful.\n", tempId);
 			strcpy(sendMsg, "Logout successful.");
 			if((n = write(connFd, sendMsg, MAXLINE)) < 0)
 				printError('w');
@@ -850,7 +909,7 @@ int logIn(int connFd, MYSQL *sql)
 	char tempId[ID];
 	char logMsg[] = "Enter ID and Password to log in.\nID<space>Password.";
 	char query[] = "SELECT * FROM USER";
-	int n, i, k, count, logId, exist;
+	int n, i, logId, exist;
 	int idError, passwordError;
 	int logout = 0;
 
@@ -881,7 +940,7 @@ int logIn(int connFd, MYSQL *sql)
 
 		if(idError == 0 && passwordError == 0)
 		{
-			printf("AlL OK\n");
+			printf("All OK\n");
 			exist = checkUser(sql, tempId, password);
 			if(exist)
 			{
@@ -895,7 +954,7 @@ int logIn(int connFd, MYSQL *sql)
 					printError('w');
 
 				// start communication with the logged in client
-				logout = startCommunication(connFd, sql);
+				logout = startCommunication(connFd, sql, tempId);
 				return logout;
 			}
 			// not registered yet
@@ -1009,7 +1068,7 @@ void startServer(int connFd)
 	printf("In startServer.\n");
 	char sendMsg[MAXLINE], recvMsg[MAXLINE], temp[MAXLINE];
 	char start[] = "Do you want to Register or Log In?";
-	int n, logout = 0;
+	int n, i, logout = 0;
 	
 	// connect mysql
 	MYSQL *sql = mysql_init(NULL);
@@ -1035,6 +1094,7 @@ void startServer(int connFd)
 	{
 		// start server
 		strcpy(sendMsg, start);
+		//sleep(SLEEP);
 		if((n = write(connFd, sendMsg, MAXLINE))<0)
 			printError('w');
 
@@ -1095,7 +1155,10 @@ int main(int argc, char const *argv[])
 	
 	// listening on the port
 	listen(listenFd, LISTENQ);
-	
+
+/*	for(int i = 0; i <LISTENQ; ++i)
+		strcpy(client[i], "");
+*/	
 	while(1)
 	{
 		// accept a client
